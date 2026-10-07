@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCH Elite Training</title>
+<meta name="robots" content="noindex">
+<script>
+  // Sends /register, /join, /about ... to the main page, which opens the right screen.
+  // Only needed if the host has no "rewrite everything to index.html" rule.
+  (function(){
+    var p = window.location.pathname + window.location.search + window.location.hash;
+    window.location.replace('/?p=' + encodeURIComponent(window.location.pathname));
+  })();
+</script>
+</head><body style="background:#f5f3ef;font-family:sans-serif;padding:40px;color:#0b1710">
+<p>Loading RCH Elite Training&hellip; <a href="/">Go to the home page</a></p>
+</body></html>
