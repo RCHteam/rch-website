@@ -5364,7 +5364,7 @@ try {
     var bar = document.getElementById('photoBar');
     if(!editing){
       bar.innerHTML = '<span><b>Photo mode.</b> Click a green <b>📷</b> tag on the page to add or change a picture. Browse the site with the menu as usual.</span><button class="alt" id="pbExit">Exit photo mode</button><span class="pmsg" id="pbMsg"></span>';
-      bar.querySelector('#pbExit').onclick = function(){ try{ sessionStorage.removeItem('rch_photo_token'); }catch(e){} location.href = location.pathname; };
+      bar.querySelector('#pbExit').onclick = function(){ autoSave(function(){ try{ sessionStorage.removeItem('rch_photo_token'); }catch(e){} window.onbeforeunload = null; location.href = location.pathname; }); };
       return;
     }
     var sl = editing, st = pending[sl.id] || current(sl);
@@ -5396,6 +5396,25 @@ try {
     bar.querySelector('#pbSave').onclick = function(){ save(sl); };
     var rm = bar.querySelector('#pbRemove'); if(rm) rm.onclick = function(){ remove(sl); };
   }
+  // Saves any picture that is still only a preview before moving on, so nothing is lost.
+  function autoSave(next){
+    var list = slots.filter(function(sl){ var p = pending[sl.id]; return p && p.dirty && (p.newImage || data[sl.id]); });
+    if(!list.length){ next(); return; }
+    msg('Saving…');
+    var failed = 0;
+    Promise.all(list.map(function(sl){
+      var s = pending[sl.id];
+      return api('PUT', sl.id, { image: s.newImage || undefined, dim: s.dim, fx: s.fx, fy: s.fy }).then(function(j){
+        data[sl.id] = { v: j.v, dim: s.dim, fx: s.fx, fy: s.fy }; delete pending[sl.id];
+      }).catch(function(){ failed++; });
+    })).then(function(){
+      if(failed){ alert(failed + ' picture(s) could not be saved. Please check your connection and try again.'); return; }
+      next();
+    });
+  }
+  window.onbeforeunload = function(){
+    for(var k in pending){ if(pending[k] && pending[k].dirty) return 'You have pictures that are not saved yet.'; }
+  };
   function msg(t){ var m = document.getElementById('pbMsg'); if(m) m.textContent = t; }
   function current(sl){ var d = data[sl.id]; return d ? { dim:d.dim, fx:d.fx, fy:d.fy, src: serverUrl(sl.id, d.v) } : { dim:25, fx:50, fy:50, src:null }; }
   function revert(sl){ delete pending[sl.id]; var d = data[sl.id]; if(d) applyPhoto(sl, serverUrl(sl.id, d.v), d.dim, d.fx, d.fy); else applyPhoto(sl, null); }
@@ -5442,11 +5461,12 @@ try {
       if(!vis){ if(chip) chip.style.display = 'none'; if(out) out.style.display = 'none'; return; }
       if(!chip){
         chip = sl.chip = document.createElement('button'); chip.type = 'button'; chip.className = 'photo-mode-chip';
-        chip.onclick = function(e){ e.stopPropagation(); editing = sl; renderBar(); };
+        chip.onclick = function(e){ e.stopPropagation(); autoSave(function(){ editing = sl; renderBar(); }); };
         document.body.appendChild(chip);
         out = sl.outline = document.createElement('div'); out.className = 'photo-mode-outline'; document.body.appendChild(out);
       }
-      chip.textContent = '📷 ' + sl.label; chip.classList.toggle('has', !!data[sl.id]); chip.style.display = '';
+      var unsaved = !!(pending[sl.id] && pending[sl.id].dirty);
+      chip.textContent = (unsaved ? '⚠ UNSAVED · ' : '📷 ') + sl.label; chip.classList.toggle('has', !!data[sl.id] && !unsaved); chip.style.borderColor = unsaved ? '#ffd24a' : ''; chip.style.color = unsaved ? '#ffd24a' : ''; chip.style.display = '';
       var x = Math.max(8, Math.min(r.left + 8, vw - 230)), y = Math.max(70, r.top + 8);
       var key = Math.round(x / 40) + ':' + Math.round(y / 30); used[key] = (used[key] || 0) + 1;
       chip.style.left = x + 'px'; chip.style.top = (y + (used[key] - 1) * 32) + 'px';
