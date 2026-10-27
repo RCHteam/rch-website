@@ -1225,6 +1225,7 @@
 @media (max-width:760px){ .join-split .join-grid{ grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce){ .cp{ animation:none; } }
 
+
 .join-split{ grid-template-columns:minmax(0,1fr) minmax(0,1.9fr); gap:70px; }
 .join-split .join-grid{ margin-left:auto; width:100%; max-width:820px; }
 .join-split .join-grid > [data-remove-id="card-join-7"]{ grid-column:2; }
@@ -5256,6 +5257,203 @@ try {
   window.addEventListener('resize',upd);
   setInterval(upd,400);
   upd();
+})();
+</script>
+<!-- ================= PHOTO SLOTS: public display + owner photo mode (open the site with ?photos) ================= -->
+<style>
+.slot-photo{ position:absolute; inset:0; z-index:3; background-size:cover; background-repeat:no-repeat; display:none; pointer-events:none; }
+.slot-photo::after{ content:''; position:absolute; inset:0; background:#000; opacity:var(--dim,0.25); }
+.slot-has-photo > .slot-photo{ display:block; }
+.slot-has-photo.slot-cover > *:not(.slot-photo){ visibility:hidden !important; }
+.slot-banner > .slot-photo{ z-index:0; }
+.slot-banner > .wrap{ position:relative; z-index:1; }
+.slot-banner.slot-has-photo::before, .slot-banner.slot-has-photo::after{ display:none !important; }
+.photo-mode-chip{ position:fixed; z-index:99990; background:#0e1712; color:#3fcf7a; border:1px solid #3fcf7a; border-radius:999px; padding:5px 11px; font:700 12px/1 'Work Sans',Arial,sans-serif; cursor:pointer; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.45); }
+.photo-mode-chip:hover{ background:#1f9d4b; color:#fff; }
+.photo-mode-chip.has{ background:#1f9d4b; color:#fff; }
+.photo-mode-outline{ position:fixed; z-index:99980; border:2px dashed #3fcf7a; pointer-events:none; box-sizing:border-box; }
+.photo-mode-outline.on{ border-style:solid; border-color:#ffd24a; }
+#photoBar{ position:fixed; left:0; right:0; bottom:0; z-index:99995; background:#0e1712; color:#f6f2e7; border-top:3px solid #3fcf7a; padding:12px 18px; font:14px 'Work Sans',Arial,sans-serif; display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; }
+#photoBar b{ color:#3fcf7a; }
+#photoBar button, #photoBar label.pbtn{ background:#1f9d4b; color:#fff; border:0; border-radius:6px; padding:9px 14px; font:700 13px 'Work Sans',Arial,sans-serif; cursor:pointer; }
+#photoBar button.alt{ background:transparent; border:1px solid rgba(246,242,231,.5); }
+#photoBar button.danger{ background:#a8322d; }
+#photoBar button:disabled{ opacity:.5; cursor:default; }
+#photoBar input[type=range]{ width:110px; vertical-align:middle; }
+#photoBar .pgrp{ display:flex; align-items:center; gap:8px; font-size:12px; }
+#photoBar .pmsg{ margin-left:auto; color:#9fe6bb; }
+#photoLogin{ position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; }
+#photoLogin form{ background:#14201a; color:#f6f2e7; border:1px solid #3fcf7a; border-radius:12px; padding:26px; width:min(360px,92vw); font:15px 'Work Sans',Arial,sans-serif; }
+#photoLogin input{ width:100%; padding:11px; margin:12px 0; border-radius:6px; border:1px solid #3fcf7a; background:#0e1712; color:#fff; font:inherit; box-sizing:border-box; }
+#photoLogin button{ background:#1f9d4b; color:#fff; border:0; border-radius:6px; padding:10px 16px; font:700 14px inherit; cursor:pointer; }
+</style>
+<script>
+(function(){
+  var API = 'https://rch-backend-1.onrender.com';
+  var SLOTS = [
+    {key:'home-banner',   sel:'#top .hero-bg-panel',               label:'Home banner picture',          kind:'cover'},
+    {key:'home-tile',     sel:'.xtile-art',                        label:'Home program tile',            kind:'cover'},
+    {key:'home-moment',   sel:'.moment-art',                       label:'Home moments card',            kind:'cover'},
+    {key:'about-banner',  sel:'#page-about .page-banner',          label:'About page top banner',        kind:'banner'},
+    {key:'about-photo',   sel:'#page-about .photo-slide',          label:'About slideshow picture',      kind:'cover'},
+    {key:'school-photo',  sel:'#page-school-programs .sp-img',     label:'School Programs picture',      kind:'cover'},
+    {key:'skills-bg',     sel:'#page-register .reg-bg',            label:'Skills Training background',   kind:'cover'},
+    {key:'skills-art',    sel:'#page-register .reg-hero-art',      label:'Skills Training player photo', kind:'cover'},
+    {key:'join-panel',    sel:'#page-join .join-collage .cp',      label:'Join Sultans background',      kind:'cover'},
+    {key:'join-league',   sel:'#page-join .lg-deco',               label:'Join page league background',  kind:'cover'}
+  ];
+  var slots = [];      // {id,label,el,layer}
+  var data = {};       // id -> {v,dim,fx,fy}
+  var token = null, editing = null, pending = {}, chips = [];
+
+  SLOTS.forEach(function(s){
+    var list = document.querySelectorAll(s.sel);
+    for(var i=0;i<list.length;i++){
+      var el = list[i];
+      if(getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      var layer = document.createElement('div'); layer.className = 'slot-photo'; el.appendChild(layer);
+      el.classList.add(s.kind === 'banner' ? 'slot-banner' : 'slot-cover');
+      slots.push({ id: s.key + '-' + (i+1), label: s.label + (list.length > 1 ? ' ' + (i+1) : ''), el: el, layer: layer });
+    }
+  });
+
+  function applyPhoto(sl, url, dim, fx, fy){
+    if(!url){ sl.el.classList.remove('slot-has-photo'); sl.layer.style.backgroundImage = ''; return; }
+    sl.layer.style.backgroundImage = 'url("' + url + '")';
+    sl.layer.style.backgroundPosition = fx + '% ' + fy + '%';
+    sl.layer.style.setProperty('--dim', String(dim / 100));
+    sl.el.classList.add('slot-has-photo');
+  }
+  function serverUrl(id, v){ return API + '/api/site-images/' + id + '?v=' + v; }
+
+  // ---- public display ----
+  fetch(API + '/api/site-images').then(function(r){ return r.ok ? r.json() : {}; }).then(function(map){
+    data = map || {};
+    slots.forEach(function(sl){ var d = data[sl.id]; if(d) applyPhoto(sl, serverUrl(sl.id, d.v), d.dim, d.fx, d.fy); });
+  }).catch(function(){});
+
+  // ---- owner photo mode ----
+  var wantMode = /[?&]photos\b/.test(location.search);
+  if(!wantMode) return;
+  try { token = sessionStorage.getItem('rch_photo_token'); } catch(e) {}
+  if(token) startMode(); else askLogin();
+
+  function askLogin(){
+    var box = document.createElement('div'); box.id = 'photoLogin';
+    box.innerHTML = '<form><b style="font-size:18px">Photo mode</b><br><span style="opacity:.8">Enter the admin password to add pictures to the website.</span><input type="password" id="photoPw" placeholder="Admin password" autocomplete="current-password"><div id="photoLoginErr" style="color:#ff8a84;min-height:18px;font-size:13px"></div><button type="submit">Continue</button> <button type="button" id="photoLoginX" style="background:transparent;border:1px solid #888">Cancel</button></form>';
+    document.body.appendChild(box);
+    box.querySelector('#photoLoginX').onclick = function(){ box.remove(); };
+    box.querySelector('form').onsubmit = function(e){
+      e.preventDefault();
+      var pw = box.querySelector('#photoPw').value;
+      fetch(API + '/api/admin/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: pw}) })
+        .then(function(r){ if(!r.ok) throw 0; token = pw; try{ sessionStorage.setItem('rch_photo_token', pw); }catch(e){} box.remove(); startMode(); })
+        .catch(function(){ box.querySelector('#photoLoginErr').textContent = 'Wrong password, try again.'; });
+    };
+  }
+
+  function startMode(){
+    var bar = document.createElement('div'); bar.id = 'photoBar'; document.body.appendChild(bar);
+    document.body.style.paddingBottom = '90px';
+    renderBar();
+    function loop(){ drawChips(); setTimeout(function(){ requestAnimationFrame(loop); }, 120); }
+    loop();
+  }
+
+  function renderBar(){
+    var bar = document.getElementById('photoBar');
+    if(!editing){
+      bar.innerHTML = '<span><b>Photo mode.</b> Click a green <b>📷</b> tag on the page to add or change a picture. Browse the site with the menu as usual.</span><button class="alt" id="pbExit">Exit photo mode</button><span class="pmsg" id="pbMsg"></span>';
+      bar.querySelector('#pbExit').onclick = function(){ try{ sessionStorage.removeItem('rch_photo_token'); }catch(e){} location.href = location.pathname; };
+      return;
+    }
+    var sl = editing, st = pending[sl.id] || current(sl);
+    bar.innerHTML = '<span><b>' + sl.label + '</b></span>' +
+      '<label class="pbtn">Choose picture<input type="file" id="pbFile" accept="image/*" style="display:none"></label>' +
+      '<span class="pgrp">Darkness <input type="range" id="pbDim" min="0" max="80" value="' + st.dim + '"></span>' +
+      '<span class="pgrp">Left/Right <input type="range" id="pbFx" min="0" max="100" value="' + st.fx + '"></span>' +
+      '<span class="pgrp">Up/Down <input type="range" id="pbFy" min="0" max="100" value="' + st.fy + '"></span>' +
+      '<button id="pbSave">Save</button><button class="alt" id="pbCancel">Cancel</button>' +
+      (data[sl.id] ? '<button class="danger" id="pbRemove">Remove picture</button>' : '') +
+      '<span class="pmsg" id="pbMsg"></span>';
+    function upd(){
+      var s = pending[sl.id] = pending[sl.id] || current(sl);
+      s.dim = +bar.querySelector('#pbDim').value; s.fx = +bar.querySelector('#pbFx').value; s.fy = +bar.querySelector('#pbFy').value; s.dirty = true;
+      if(s.src) applyPhoto(sl, s.src, s.dim, s.fx, s.fy);
+    }
+    ['pbDim','pbFx','pbFy'].forEach(function(id){ bar.querySelector('#'+id).oninput = upd; });
+    bar.querySelector('#pbFile').onchange = function(e){
+      var f = e.target.files[0]; if(!f) return;
+      msg('Preparing picture…');
+      resize(f, function(dataUrl){
+        var s = pending[sl.id] = pending[sl.id] || current(sl);
+        s.src = dataUrl; s.newImage = dataUrl; s.dirty = true;
+        applyPhoto(sl, dataUrl, s.dim, s.fx, s.fy);
+        msg('Looks good? Click Save.');
+      });
+    };
+    bar.querySelector('#pbCancel').onclick = function(){ revert(sl); editing = null; renderBar(); };
+    bar.querySelector('#pbSave').onclick = function(){ save(sl); };
+    var rm = bar.querySelector('#pbRemove'); if(rm) rm.onclick = function(){ remove(sl); };
+  }
+  function msg(t){ var m = document.getElementById('pbMsg'); if(m) m.textContent = t; }
+  function current(sl){ var d = data[sl.id]; return d ? { dim:d.dim, fx:d.fx, fy:d.fy, src: serverUrl(sl.id, d.v) } : { dim:25, fx:50, fy:50, src:null }; }
+  function revert(sl){ delete pending[sl.id]; var d = data[sl.id]; if(d) applyPhoto(sl, serverUrl(sl.id, d.v), d.dim, d.fx, d.fy); else applyPhoto(sl, null); }
+
+  function resize(file, cb){
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function(){
+      var max = 1800, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); cb(c.toDataURL('image/jpeg', 0.84));
+    };
+    img.onerror = function(){ msg('Could not read that picture.'); };
+    img.src = url;
+  }
+
+  function api(method, id, body){
+    return fetch(API + '/api/admin/site-images/' + id, { method: method, headers:{'Content-Type':'application/json','Authorization':'Bearer ' + token}, body: body ? JSON.stringify(body) : undefined })
+      .then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || 'Failed'); return j; }); });
+  }
+  function save(sl){
+    var s = pending[sl.id]; if(!s || !s.dirty){ msg('Nothing to save yet.'); return; }
+    if(!s.newImage && !data[sl.id]){ msg('Choose a picture first.'); return; }
+    msg('Saving…');
+    api('PUT', sl.id, { image: s.newImage || undefined, dim: s.dim, fx: s.fx, fy: s.fy }).then(function(j){
+      data[sl.id] = { v: j.v, dim: s.dim, fx: s.fx, fy: s.fy };
+      delete pending[sl.id]; applyPhoto(sl, serverUrl(sl.id, j.v), s.dim, s.fx, s.fy);
+      editing = null; renderBar(); msg('Saved. Everyone sees it now.');
+    }).catch(function(e){ msg('Could not save: ' + e.message); });
+  }
+  function remove(sl){
+    if(!confirm('Remove this picture and go back to the original design?')) return;
+    api('DELETE', sl.id).then(function(){ delete data[sl.id]; delete pending[sl.id]; applyPhoto(sl, null); editing = null; renderBar(); msg('Removed.'); })
+      .catch(function(e){ msg('Could not remove: ' + e.message); });
+  }
+
+  // chips that float on the real page, one per visible slot
+  function drawChips(){
+    var used = {}, n = 0, vw = innerWidth, vh = innerHeight;
+    slots.forEach(function(sl){
+      var r = sl.el.getBoundingClientRect();
+      var vis = r.width > 20 && r.height > 20 && r.bottom > 60 && r.top < vh - 70 && r.right > 0 && r.left < vw;
+      var chip = sl.chip, out = sl.outline;
+      if(!vis){ if(chip) chip.style.display = 'none'; if(out) out.style.display = 'none'; return; }
+      if(!chip){
+        chip = sl.chip = document.createElement('button'); chip.type = 'button'; chip.className = 'photo-mode-chip';
+        chip.onclick = function(e){ e.stopPropagation(); editing = sl; renderBar(); };
+        document.body.appendChild(chip);
+        out = sl.outline = document.createElement('div'); out.className = 'photo-mode-outline'; document.body.appendChild(out);
+      }
+      chip.textContent = '📷 ' + sl.label; chip.classList.toggle('has', !!data[sl.id]); chip.style.display = '';
+      var x = Math.max(8, Math.min(r.left + 8, vw - 230)), y = Math.max(70, r.top + 8);
+      var key = Math.round(x / 40) + ':' + Math.round(y / 30); used[key] = (used[key] || 0) + 1;
+      chip.style.left = x + 'px'; chip.style.top = (y + (used[key] - 1) * 32) + 'px';
+      out.style.display = ''; out.style.left = r.left + 'px'; out.style.top = r.top + 'px'; out.style.width = r.width + 'px'; out.style.height = r.height + 'px';
+      out.classList.toggle('on', editing === sl);
+    });
+  }
 })();
 </script>
 </body></html>
